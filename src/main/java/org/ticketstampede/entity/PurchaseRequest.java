@@ -13,18 +13,18 @@ public class PurchaseRequest {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    //request id has to be globally uniqeue
+    //request id has to be globally unique
     @Column(name = "request_id",nullable = false,updatable = false,unique = true)
     private UUID requestId;
 
-    @ManyToOne(optional = true)
+    @ManyToOne
     @JoinColumn(name = "sale_version_id")
     private SaleVersion saleVersion;
 
     @Column(name = "user_id",nullable = false,updatable = false)
     private String userId;
 
-    @OneToOne(optional = true)
+    @OneToOne
     @JoinColumn(name = "ticket_id",unique = true)
     private Ticket ticket;
 

@@ -15,7 +15,7 @@ public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest
     Optional<PurchaseRequest> findByRequestId(UUID requestId);
 
     @Modifying
-    @Query(value  = """
+    @Query(value = """
                     INSERT INTO purchase_request(
                         id,
                         request_id,

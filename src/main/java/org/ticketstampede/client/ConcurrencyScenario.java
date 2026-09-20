@@ -3,7 +3,6 @@ package org.ticketstampede.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ticketstampede.dto.*;
 import org.ticketstampede.entity.PurchaseStatus;
-
 import java.net.URI;
 import java.net.http.HttpResponse;
 import java.util.*;
@@ -33,7 +32,7 @@ public class ConcurrencyScenario {
         );
 
         ConcurrencyScenario demo = new ConcurrencyScenario(buyerClient, objectMapper);
-//        demo.concurrentBuys();
+        demo.concurrentBuys();
 //        demo.buyAndReset();
 //        demo.buyAndStatus();
 //        demo.concurrentResets();

@@ -1,15 +1,13 @@
 package org.ticketstampede.service;
 
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
-import org.ticketstampede.dto.ResetRequest;
 import org.ticketstampede.dto.ResetResponse;
 import org.ticketstampede.entity.SaleVersion;
 import org.ticketstampede.entity.Ticket;
 import org.ticketstampede.infrastructure.PostgresAdvisoryLockService;
 import org.ticketstampede.repository.SaleVersionRepository;
 import org.ticketstampede.repository.TicketRepository;
-
 import java.util.Optional;
 
 @Service
@@ -30,7 +28,7 @@ public class SaleVersionService {
     @Transactional
     public ResetResponse createSaleVersion(int capacity)
     {
-        if(capacity<=0) throw new IllegalArgumentException("Capacity mut be positive");
+        if(capacity<=0) throw new IllegalArgumentException("Capacity must be positive");
         postgresAdvisoryLockService.acquireResetLock();
         SaleVersion saleVersion = new SaleVersion(capacity);
         saleVersionRepository.save(saleVersion);

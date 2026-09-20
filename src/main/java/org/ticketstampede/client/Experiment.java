@@ -18,7 +18,6 @@ public class Experiment {
     {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
-        objectMapper.findAndRegisterModules();
         objectMapper.configure(
                 DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
                 false
@@ -26,7 +25,7 @@ public class Experiment {
         BuyerClient buyerClient = new BuyerClient(URI.create("http://localhost:8080"), objectMapper);
         WorkloadRunner workloadRunner = new WorkloadRunner(buyerClient, objectMapper);
         int ticketCapacity = 100;
-        int buyerCount = 20;
+        int buyerCount = 50000;
         List<Integer> concurrencyLevels = List.of(
                 10, 20, 30, 40, 50,
                 60, 70, 80, 90, 100,

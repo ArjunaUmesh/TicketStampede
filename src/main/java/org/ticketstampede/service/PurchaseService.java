@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.ticketstampede.dto.BuyTicketResponse;
 import org.ticketstampede.entity.*;
 import org.ticketstampede.exception.*;
-import org.ticketstampede.repository.DatastoreSimulationRepository;
 import org.ticketstampede.repository.PurchaseRequestRepository;
 import org.ticketstampede.repository.SaleVersionRepository;
 import org.ticketstampede.repository.TicketRepository;
@@ -24,19 +23,16 @@ public class PurchaseService {
     private final SaleVersionRepository saleVersionRepository;
     private final PaymentService paymentService;
     private static final int MAX_CONTENTION_RETRIES = 3;
-//    private final DatastoreSimulationRepository datastoreSimulationRepository;
 
     public PurchaseService(TicketRepository ticketRepository,
                            PurchaseRequestRepository purchaseRequestRepository,
                            SaleVersionRepository saleVersionRepository,
-                           PaymentService paymentService,
-                           DatastoreSimulationRepository datastoreSimulationRepository)
+                           PaymentService paymentService)
     {
         this.ticketRepository = ticketRepository;
         this.purchaseRequestRepository = purchaseRequestRepository;
         this.saleVersionRepository = saleVersionRepository;
         this.paymentService = paymentService;
-//        this.datastoreSimulationRepository = datastoreSimulationRepository;
     }
 
     //READ_COMMITTED = on each new query, read the latest committed state available at the start of that query.
@@ -48,9 +44,6 @@ public class PurchaseService {
         {
             throw new IllegalArgumentException("Invalid user/request");
         }
-
-        //SIMULATE DB STORE ACCESS SLOWED FOR 10S
-//        datastoreSimulationRepository.sleep(10);
 
         //2. RequestId lookup
         Optional<PurchaseRequest> purchaseRequest = purchaseRequestRepository.findByRequestId(requestId);
@@ -127,7 +120,6 @@ public class PurchaseService {
         newPurchaseRequest.markAsPurchased(ticket);
         return convertToBuyTicketResponse(newPurchaseRequest);
     }
-
 
     private BuyTicketResponse convertToBuyTicketResponse(PurchaseRequest purchaseRequest)
     {
