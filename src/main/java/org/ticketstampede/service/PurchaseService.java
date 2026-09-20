@@ -24,7 +24,7 @@ public class PurchaseService {
     private final SaleVersionRepository saleVersionRepository;
     private final PaymentService paymentService;
     private static final int MAX_CONTENTION_RETRIES = 3;
-//    private final DatastoreSimulationRepository datastoreSimulationRepository;
+    private final DatastoreSimulationRepository datastoreSimulationRepository;
 
     public PurchaseService(TicketRepository ticketRepository,
                            PurchaseRequestRepository purchaseRequestRepository,
@@ -36,10 +36,10 @@ public class PurchaseService {
         this.purchaseRequestRepository = purchaseRequestRepository;
         this.saleVersionRepository = saleVersionRepository;
         this.paymentService = paymentService;
-//        this.datastoreSimulationRepository = datastoreSimulationRepository;
+        this.datastoreSimulationRepository = datastoreSimulationRepository;
     }
 
-    //READ_COMMITTED = on each new query, read the latest committed state available at the start of that query.
+    //READ_COMMITTED ; on each new query, read the latest committed state available at the start of that query.
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public BuyTicketResponse buyTicket(String userId, UUID requestId)
     {
@@ -50,7 +50,7 @@ public class PurchaseService {
         }
 
         //SIMULATE DB STORE ACCESS SLOWED FOR 10S
-//        datastoreSimulationRepository.sleep(10);
+        datastoreSimulationRepository.sleep(10);
 
         //2. RequestId lookup
         Optional<PurchaseRequest> purchaseRequest = purchaseRequestRepository.findByRequestId(requestId);
@@ -91,7 +91,8 @@ public class PurchaseService {
                 ticket = candidate.get();
                 break;
             }
-            //If no available ticket found that's not locked, query to find if any there exists any available ticket
+            // SKIP LOCKED returning empty does not necessarily mean sold out.
+            // Check whether an AVAILABLE ticket still exists but is currently locked.
             boolean anyAvailableTicket = ticketRepository.existsBySaleVersionIdAndStatus(activeSaleVersion.getId(), TicketStatus.AVAILABLE);
             if(!anyAvailableTicket)
             {
