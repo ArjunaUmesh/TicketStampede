@@ -1,0 +1,78 @@
+Logical buyers: 30
+HTTP requests: 40
+Errors: 0
+INVARIANT FAILED: oversold tickets
+INVARIANT FAILED: duplicate ticket number issued
+Purchased logical requests: 30
+Tickets in status: 4
+Invariant 1 (no overselling)       :	FAIL
+Invariant 2 (unique ticket)        :	FAIL
+Invariant 3 (idempotent request)   :	PASS
+Invariant 4 (status consistency)   :	PASS
+overall                            :	FAIL
+Duration: 0.106215709 seconds
+Throughput: 376.5921291360019 requests/sec
+p50 latency: 16.460416 ms
+p99 latency: 31.6405 ms
+ERROR RESPONSES : 
+[ ]
+Buy ticket Responses : 
+Purchase status: PURCHASED, requestId=81808246-d5ef-4fe5-870d-a62ab3a61201 ticketNumber=1
+Purchase status: PURCHASED, requestId=07177965-01c6-4bf0-900f-27cc6c3de81a ticketNumber=1
+Purchase status: PURCHASED, requestId=a21b2ee1-2d3c-424f-b15b-0061fee22729 ticketNumber=1
+Purchase status: PURCHASED, requestId=a21b2ee1-2d3c-424f-b15b-0061fee22729 ticketNumber=1
+Purchase status: PURCHASED, requestId=9cb397fc-4799-4864-a7ae-d412ba4a2d66 ticketNumber=1
+Purchase status: PURCHASED, requestId=69838647-2fd4-4313-b220-07f89160a11f ticketNumber=1
+Purchase status: PURCHASED, requestId=70165fef-04a2-444a-925a-be2f724a7f0b ticketNumber=1
+Purchase status: PURCHASED, requestId=70165fef-04a2-444a-925a-be2f724a7f0b ticketNumber=1
+Purchase status: PURCHASED, requestId=0a453c6d-4c4c-4a11-9def-a0321bf8eca0 ticketNumber=1
+Purchase status: PURCHASED, requestId=6e8b7b42-ebe4-44ee-a015-95731d819794 ticketNumber=1
+Purchase status: PURCHASED, requestId=95551278-8e4d-47fa-bb51-11871bbaa806 ticketNumber=2
+Purchase status: PURCHASED, requestId=95551278-8e4d-47fa-bb51-11871bbaa806 ticketNumber=2
+Purchase status: PURCHASED, requestId=907c03ea-9a10-4933-abd6-a8eb1793cfab ticketNumber=2
+Purchase status: PURCHASED, requestId=6566dc17-9f45-4019-a2f2-3251c4d8debe ticketNumber=2
+Purchase status: PURCHASED, requestId=f078de48-f0c9-41a4-9812-412bc4fd7e86 ticketNumber=2
+Purchase status: PURCHASED, requestId=f078de48-f0c9-41a4-9812-412bc4fd7e86 ticketNumber=2
+Purchase status: PURCHASED, requestId=6c67546f-b282-4b11-a59f-41ca0d2f00f4 ticketNumber=2
+Purchase status: PURCHASED, requestId=aed3ec18-63f2-4efe-ae97-c8d750a06ca4 ticketNumber=2
+Purchase status: PURCHASED, requestId=8351ca87-aeb5-44a9-bcdc-4a581db0fa92 ticketNumber=2
+Purchase status: PURCHASED, requestId=8351ca87-aeb5-44a9-bcdc-4a581db0fa92 ticketNumber=2
+Purchase status: PURCHASED, requestId=31c08d72-7b0e-41b3-a1e4-8c2f95d608b3 ticketNumber=3
+Purchase status: PURCHASED, requestId=6ff83447-c21d-45b0-9481-decbfe848f19 ticketNumber=3
+Purchase status: PURCHASED, requestId=863ad568-4a66-4e9d-8a8c-ab1262c06cc7 ticketNumber=3
+Purchase status: PURCHASED, requestId=863ad568-4a66-4e9d-8a8c-ab1262c06cc7 ticketNumber=3
+Purchase status: PURCHASED, requestId=e4caab3c-2b7e-4b87-bc46-d0522b594b92 ticketNumber=3
+Purchase status: PURCHASED, requestId=23b1c2a0-e4b0-449c-ad1f-3a95a6979f2c ticketNumber=3
+Purchase status: PURCHASED, requestId=0de7a3c1-7ab4-4d4d-8825-6be86f7f2b30 ticketNumber=3
+Purchase status: PURCHASED, requestId=0de7a3c1-7ab4-4d4d-8825-6be86f7f2b30 ticketNumber=3
+Purchase status: PURCHASED, requestId=de33e7b9-6fc9-4c64-9ed7-c65dcff69984 ticketNumber=3
+Purchase status: PURCHASED, requestId=a128949c-d80a-4019-ae9a-39acc1c051ab ticketNumber=3
+Purchase status: PURCHASED, requestId=532236ab-f023-41ad-90bc-717d4a52fe74 ticketNumber=4
+Purchase status: PURCHASED, requestId=532236ab-f023-41ad-90bc-717d4a52fe74 ticketNumber=4
+Purchase status: PURCHASED, requestId=dad80935-e1ce-4c3a-9e43-c42fd43cf559 ticketNumber=4
+Purchase status: PURCHASED, requestId=7906e340-9fb1-42d7-9004-71739e111c0b ticketNumber=4
+Purchase status: PURCHASED, requestId=38d0bce8-842c-47b7-b06d-824c65482584 ticketNumber=4
+Purchase status: PURCHASED, requestId=38d0bce8-842c-47b7-b06d-824c65482584 ticketNumber=4
+Purchase status: PURCHASED, requestId=5b29be61-61d8-4479-939c-ee3bd64d267d ticketNumber=4
+Purchase status: PURCHASED, requestId=167597ff-fa9e-4ca9-9041-555b5d85ffd7 ticketNumber=4
+Purchase status: PURCHASED, requestId=3bc556b4-5859-4527-b147-7a3db062d532 ticketNumber=4
+Purchase status: PURCHASED, requestId=3bc556b4-5859-4527-b147-7a3db062d532 ticketNumber=4
+STATUS : 
+{
+  "saleVersionId" : "90b1df9c-d8d4-46e3-9539-1014004d3e32",
+  "capacity" : 5,
+  "soldTicketCount" : 4,
+  "ticketHolders" : [ {
+    "ticketNumber" : 1,
+    "userId" : "user-7"
+  }, {
+    "ticketNumber" : 2,
+    "userId" : "user-10"
+  }, {
+    "ticketNumber" : 3,
+    "userId" : "user-23"
+  }, {
+    "ticketNumber" : 4,
+    "userId" : "user-29"
+  } ]
+}
