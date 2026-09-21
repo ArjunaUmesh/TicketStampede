@@ -24,8 +24,8 @@ public class PurchaseRequest {
     @Column(name = "user_id",nullable = false,updatable = false)
     private String userId;
 
-    @OneToOne
-    @JoinColumn(name = "ticket_id",unique = true)
+    @ManyToOne
+    @JoinColumn(name = "ticket_id")
     private Ticket ticket;
 
     //store readable strings for enums instead of enum ordinals

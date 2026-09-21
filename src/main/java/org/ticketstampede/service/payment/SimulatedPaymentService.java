@@ -9,7 +9,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class SimulatedPaymentService implements PaymentService{
 
-    private static final double FAILURE_PROBABILITY = 0.02;
+    private static final double FAILURE_PROBABILITY = 0.0;
     private static final int MAX_DELAY_MS = 20;
 
     @Override

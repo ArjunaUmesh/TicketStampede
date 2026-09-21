@@ -1,2 +1,2 @@
 ticketCapacity,buyerCount,concurrency,httpRequestsCount,errorCount,durationSeconds,throughput,p50Millis,p99Millis,invariantsPassed
-100,50000,200,66666,2,11.005490458,6057.521948196304,17.889417,39.359334,true
+1,20,20,26,0,0.066353833,391.83870508279455,48.514875,55.748916,false

@@ -81,8 +81,8 @@ CREATE TABLE purchase_request (
                                   CONSTRAINT uk_purchase_request_request_id
                                       UNIQUE (request_id),
 
-                                  CONSTRAINT uk_purchase_request_ticket
-                                      UNIQUE (ticket_id),
+--                                   CONSTRAINT uk_purchase_request_ticket
+--                                       UNIQUE (ticket_id),
 
                                   CONSTRAINT fk_purchase_request_sale_version
                                       FOREIGN KEY (sale_version_id)

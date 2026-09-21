@@ -14,7 +14,6 @@ import org.ticketstampede.service.payment.PaymentService;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PurchaseService {
@@ -22,7 +21,6 @@ public class PurchaseService {
     private final PurchaseRequestRepository purchaseRequestRepository;
     private final SaleVersionRepository saleVersionRepository;
     private final PaymentService paymentService;
-    private static final int MAX_CONTENTION_RETRIES = 3;
 
     public PurchaseService(TicketRepository ticketRepository,
                            PurchaseRequestRepository purchaseRequestRepository,
@@ -73,48 +71,23 @@ public class PurchaseService {
 
         newPurchaseRequest.bindToSale(activeSaleVersion);
 
-        //5. Acquire available ticket that isn't locked
+        //5. Acquire available ticket naively
         Ticket ticket = null;
-        for(int attempt = 0; attempt <= MAX_CONTENTION_RETRIES; attempt++)
+        Optional<Ticket> candidate = ticketRepository.findAvailableTicket(activeSaleVersion.getId());
+
+        if(candidate.isPresent())
         {
-            Optional<Ticket> candidate = ticketRepository.findAvailableTicket(activeSaleVersion.getId());
-
-            if(candidate.isPresent())
-            {
-                ticket = candidate.get();
-                break;
-            }
-            //If no available ticket found that's not locked, query to find if any there exists any available ticket
-            boolean anyAvailableTicket = ticketRepository.existsBySaleVersionIdAndStatus(activeSaleVersion.getId(), TicketStatus.AVAILABLE);
-            if(!anyAvailableTicket)
-            {
-                newPurchaseRequest.markAsSoldOut();
-                return convertToBuyTicketResponse(newPurchaseRequest);
-            }
-            if(attempt == MAX_CONTENTION_RETRIES)
-            {
-                throw new RetryableTicketError();
-            }
-
-            //retry with jitter to reduce probability that too many transactions retry at the same time
-            long jitterMs = ThreadLocalRandom.current().nextLong(5, 21);
-            try
-            {
-                Thread.sleep(jitterMs);
-            }
-            catch (InterruptedException e)
-            {
-                Thread.currentThread().interrupt();
-                throw new RetryableTicketError();
-            }
+            ticket = candidate.get();
+        }else
+        {
+            newPurchaseRequest.markAsSoldOut();
+            return convertToBuyTicketResponse(newPurchaseRequest);
         }
-
         //6. Try payment
         if(paymentService.authorize(requestId,userId)== PaymentStatus.RETRYABLE_FAILURE)
         {
             throw new RetryablePaymentException();
         }
-
         // 7. Mark ticket as sold and purchase request as purchased
         ticket.markAsSold(userId);
         newPurchaseRequest.markAsPurchased(ticket);

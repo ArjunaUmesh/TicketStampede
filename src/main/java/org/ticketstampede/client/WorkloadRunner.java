@@ -58,10 +58,29 @@ public class WorkloadRunner {
         System.out.println("p50 latency: " + p50Millis + " ms");
         System.out.println("p99 latency: " + p99Millis + " ms");
 
+        System.out.println("ERROR RESPONSES : ");
         System.out.println(
                 objectMapper
                         .writerWithDefaultPrettyPrinter()
                         .writeValueAsString(errorResponses)
+        );
+        System.out.println("Buy ticket Responses : ");
+        buyTicketResponses.stream()
+//                .filter(response -> response.status() == PurchaseStatus.PURCHASED)
+                .forEach(response ->
+                        System.out.printf(
+                                "Purchase status: %s, requestId=%s ticketNumber=%d%n",
+                                response.status(),
+                                response.requestId(),
+                                response.ticketNumber()
+                        )
+                );
+
+        System.out.println("STATUS : ");
+        System.out.println(
+                objectMapper
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(statusResponse)
         );
 
         return new WorkloadResult(ticketCapacity,

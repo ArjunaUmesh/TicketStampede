@@ -24,7 +24,6 @@ public interface TicketRepository extends JpaRepository<Ticket, UUID> {
                       AND status = 'AVAILABLE'
                     ORDER BY ticket_number ASC
                     LIMIT 1
-                    FOR UPDATE SKIP LOCKED
                     """,
             nativeQuery = true
     )
