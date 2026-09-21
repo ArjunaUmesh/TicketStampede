@@ -40,7 +40,43 @@ The load client verified that:
 
 The performance experiments used a simulated payment implementation with a randomized latency(upto 20ms) and a 2% retryable failure probability.
 
-## 2. Baseline Performance
+## 2. Naive Seller Failure
+
+A naive approach in ticket allocation purchases the first available ticket
+
+The naive seller was tested with:
+
+| Parameter | Value |
+|---|---:|
+| Ticket capacity | 5 |
+| Logical buyers | 30 |
+| HTTP buy requests | 40 |
+| Concurrency | 10 |
+
+The run produced:
+
+| Result | Observed value |
+|---|---:|
+| Logical requests reporting PURCHASED | 30 |
+| Tickets reported SOLD by `/status` | 4 |
+| Overselling invariant | FAIL |
+| Unique ticket issuance invariant | FAIL |
+| Idempotent request invariant | PASS |
+| Status consistency invariant | PASS |
+| Overall | FAIL |
+
+The purchase responses showed multiple distinct request IDs receiving the same ticket number. 
+For example, several concurrent requests were acknowledged as `PURCHASED` for ticket 1 before subsequent requests progressed to tickets 2, 3, and 4.
+
+The final `/status` contained only four SOLD ticket rows even though 30 logical purchase requests had been acknowledged as successful.
+Ticket 5 remained AVAILABLE because concurrent buyers repeatedly raced for the same lowest-numbered AVAILABLE ticket rather than safely claiming distinct tickets.
+
+The raw output is preserved in [`results/naive_run_results.txt`](results/naive_run_results.txt).
+
+The corrected seller prevents this race by using PostgreSQL `FOR UPDATE SKIP LOCKED` to claim an AVAILABLE ticket row. 
+Database uniqueness constraints provide additional protection, while the contention check prevents an empty `SKIP LOCKED` result from being incorrectly interpreted as genuine sell-out.
+
+## 3. Baseline Performance
 
 The initial workload was run across concurrency levels from 10 to 300 using the V1 database schema.
 
@@ -62,12 +98,12 @@ All correctness invariants passed at every tested concurrency level.
 
 The baseline therefore showed a saturation region around concurrency 50–70: additional concurrency no longer produced higher throughput, while request latency continued to increase.
 
-## 3. Bottleneck Investigation
+## 4. Bottleneck Investigation
 
 The baseline results showed that increasing concurrency beyond  50–70 no longer increased throughput, while request latency continued to rise. 
 The next step was to identify where requests were spending time under higher concurrency.
 
-### 3.1 Database Connection Pool
+### 4.1 Database Connection Pool
 
 HikariCP metrics were observed through JMX while running the normal workload at concurrency 200.
 
@@ -88,7 +124,7 @@ This coincided with the region in which additional concurrency no longer produce
 
 However, this observation alone does not establish the connection pool size itself as the root cause. Connections may remain occupied because of transaction duration, database queries, row-lock contention, or other work performed while a transaction is active.
 
-### 3.2 Payment Latency Check
+### 4.2 Payment Latency Check
 
 A diagnostic run was performed with the simulated payment delay removed and the payment failure probability set to 0.
 
@@ -98,12 +134,12 @@ this indicates that the simulated payment latency was not the primary cause of t
 
 This shifted the investigation toward the database work performed inside the purchase transaction.
 
-## 4. Database Query Investigation
+## 5. Database Query Investigation
 
 The purchase transaction repeatedly queries for an available ticket using `FOR UPDATE SKIP LOCKED`.
 When no unlocked ticket is returned, a second query checks whether an AVAILABLE ticket still exists before deciding whether the sale is genuinely sold out or the remaining tickets are temporarily locked by other transactions.
 
-### 4.1 V1 Query Plan
+### 5.1 V1 Query Plan
 
 In V1, there was no index specifically targeting AVAILABLE tickets. PostgreSQL used the existing `(sale_version_id, ticket_number)` index to locate tickets belonging to the sale and then filtered them by status.
 
@@ -128,7 +164,7 @@ The full query plans are preserved in [`explain/v1.txt`](explain/v1.txt).
 
 Although these queries were already fast for an inventory of only 100 tickets, the plans showed unnecessary work after the sale had sold out: PostgreSQL located the sale's tickets and then filtered SOLD tickets while searching for an AVAILABLE one.
 
-### 4.2 Partial Index
+### 5.2 Partial Index
 
 To make the access path match the query, V2 introduced a partial index containing only AVAILABLE tickets:
 
@@ -181,7 +217,7 @@ The partial index therefore reduced the amount of database work required to dete
 
 However, improving an individual query does not necessarily improve end-to-end application performance. The workload was rerun with the V2 schema to measure whether this change affected overall throughput and latency.
 
-## 5. End-to-End Impact of the Partial Index
+## 6. End-to-End Impact of the Partial Index
 
 The same 50,000-buyer workload and concurrency sweep were repeated with the V2 schema. The application configuration, connection pool, workload generation, and simulated payment behavior were kept unchanged.
 
@@ -207,7 +243,7 @@ This indicates that although the partial index reduced the work performed by the
 
 The experiment also demonstrates why the query-plan improvement and application-level performance should be evaluated separately: `EXPLAIN ANALYZE` confirmed that the database access path improved, but the full workload showed that the optimization alone was not sufficient to materially change overall throughput.
 
-## 6. Slow Datastore Experiment
+## 7. Slow Datastore Experiment
 
 To evaluate the behavior of the service under a severely degraded datastore, a temporary 10-second PostgreSQL delay was introduced inside the purchase transaction.
 
@@ -236,7 +272,7 @@ The workload produced the following results:
 
 The two errors were retryable payment failures from the simulated payment implementation.
 
-### 6.1 Connection Pool Behavior
+### 7.1 Connection Pool Behavior
 
 During the datastore slowdown, HikariCP reached:
 
@@ -259,7 +295,7 @@ After the delayed transactions completed, the pool recovered:
 
 At the observed recovery point, the pool contained 6 active connections and 4 idle connections, with no threads waiting for a connection.
 
-### 6.2 Correctness Under Degradation
+### 7.2 Correctness Under Degradation
 
 Despite the severe increase in latency and reduction in throughput, all ticket-sale correctness invariants continued to pass.
 
@@ -267,7 +303,7 @@ The service did not oversell tickets, issue duplicate ticket numbers, violate re
 
 The experiment shows that datastore slowdown primarily affected availability and latency.
 
-## 7. Conclusions
+## 8. Conclusions
 
 The performance investigation showed that the service maintained its correctness guarantees across all tested concurrency levels, including under severe datastore degradation.
 

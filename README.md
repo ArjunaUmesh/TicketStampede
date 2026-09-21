@@ -126,6 +126,28 @@ The load client verifies that:
 4. `/status` agrees with the tickets observed as successfully issued.
 
 PostgreSQL transactions, row locking, uniqueness constraints, and idempotent purchase requests are used to preserve these guarantees under concurrent requests.
+## Naive Implementation and Failing Run
+
+The initial submission went directly to the database-coordinated implementation and omitted the brief's requested naive-first experiment. 
+I added the deliberately unsafe version afterward to demonstrate the race condition that the final implementation prevents.
+
+The naive implementation is preserved on the `naiive` branch. It selects the first AVAILABLE ticket without row locking, 
+allowing concurrent transactions to observe and purchase the same ticket.
+
+A test with 5 tickets, 30 logical buyers, and concurrency 10 produced:
+
+- 30 logical requests reported `PURCHASED`
+- only 4 tickets were recorded as sold in `/status`
+- multiple distinct request IDs received the same ticket numbers
+- overselling invariant: FAIL
+- unique ticket issuance invariant: FAIL
+- idempotency invariant: PASS
+- status consistency invariant: PASS
+
+The raw failing run is available in [`results/naive_run_results.txt`](results/naive_run_results.txt).
+
+The final implementation fixes this by claiming ticket rows with PostgreSQL `FOR UPDATE SKIP LOCKED`, 
+distinguishing temporary lock contention from genuine sell-out, and retaining database constraints as additional correctness protection.
 
 ## Concurrency Approach
 
