@@ -33,7 +33,7 @@ public class Experiment {
                 160, 170, 180, 190,200,
                 225, 250, 275, 300
         );
-        Path resultPath = Path.of("results", "optimized_v2_sweep.csv");
+        Path resultPath = Path.of("results", "performance_metrics.csv");
         Files.createDirectories(resultPath.getParent());
         try (BufferedWriter writer = Files.newBufferedWriter(resultPath))
         {
