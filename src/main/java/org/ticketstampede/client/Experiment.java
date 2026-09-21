@@ -26,14 +26,14 @@ public class Experiment {
         WorkloadRunner workloadRunner = new WorkloadRunner(buyerClient, objectMapper);
         int ticketCapacity = 100;
         int buyerCount = 50000;
-        List<Integer> concurrencyLevels = List.of(
-                10, 20, 30, 40, 50,
-                60, 70, 80, 90, 100,
-                110, 120, 130, 140, 150,
-                160, 170, 180, 190,200,
-                225, 250, 275, 300
+        List<Integer> concurrencyLevels = List.of(200
+//                10, 20, 30, 40, 50,
+//                60, 70, 80, 90, 100,
+//                110, 120, 130, 140, 150,
+//                160, 170, 180, 190,200,
+//                225, 250, 275, 300
         );
-        Path resultPath = Path.of("results", "baseline-50k_5.csv");
+        Path resultPath = Path.of("results", "optimized_v2_sweep.csv");
         Files.createDirectories(resultPath.getParent());
         try (BufferedWriter writer = Files.newBufferedWriter(resultPath))
         {
