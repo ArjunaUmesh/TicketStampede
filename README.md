@@ -1,8 +1,308 @@
 # Ticket Stampede
 
-A concurrent ticket-selling service built with Spring Boot and PostgreSQL.
+Ticket Stampede is a concurrent ticket-selling service built with Spring Boot and PostgreSQL.
 
-The service models a high-contention sale in which 50,000 buyers compete for 100 tickets. It provides idempotent purchase requests, concurrent ticket allocation, atomic sale resets, and status reporting while preserving the ticket-sale correctness invariants under load.
+It models a high-contention ticket sale where buyers compete for limited inventory, receive temporary reservations, complete simulated payments, and wait in a buyer queue when tickets are temporarily unavailable.
+
+The system is designed around correctness under concurrency. It uses PostgreSQL transactions, row-level locking, `FOR UPDATE SKIP LOCKED`, idempotent purchase requests, database constraints, and scheduled expiry jobs to coordinate ticket allocation without application-level distributed locks.
+
+## Features
+
+- Concurrent ticket allocation
+- Temporary ticket reservations
+- Reservation expiry and automatic ticket release
+- Simulated payment processing
+- Purchase confirmation
+- Idempotent purchase requests
+- FIFO buyer queue
+- Automatic promotion of queued buyers
+- Queue-entry expiry
+- Sale reset/versioning
+- Purchase-request polling
+
+## Tech Stack
+
+- Java 21
+- Spring Boot
+- Spring Data JPA / Hibernate
+- PostgreSQL
+- Flyway
+- JobRunr
+- Maven
+
+## Core Purchase Flow
+
+A purchase is not completed immediately when a buyer calls `/buy`.
+
+Instead, the service uses a reservation-based lifecycle.
+
+```text
+AVAILABLE ticket
+      |
+      v
+POST /buy
+      |
+      v
+RESERVED
+      |
+      v
+Payment
+      |
+      v
+Confirm Reservation
+      |
+      v
+PURCHASED
+```
+
+If the buyer does not confirm the reservation before its deadline:
+
+```text
+RESERVED
+    |
+    v
+Reservation expires
+    |
+    v
+RESERVATION_EXPIRED
+```
+
+The ticket can then be released or transferred directly to a waiting buyer.
+
+## Buyer Queue
+
+When `/buy` cannot immediately acquire an available ticket, but tickets for the sale are still either `AVAILABLE` or `RESERVED`, the request enters the buyer queue.
+
+```text
+POST /buy
+    |
+    v
+QUEUED
+```
+
+If a reservation later expires, the oldest eligible queued buyer is promoted:
+
+```text
+Buyer A
+RESERVED
+    |
+    | reservation expires
+    v
+RESERVATION_EXPIRED
+
+Buyer B
+QUEUED
+    |
+    v
+RESERVED
+```
+
+A new reservation is created for Buyer B and receives its own expiration deadline.
+
+If no ticket becomes available before the buyer's queue deadline:
+
+```text
+QUEUED
+   |
+   v
+QUEUE_EXPIRED
+```
+
+If all tickets are already permanently `SOLD`, new purchase requests return:
+
+```text
+SOLD_OUT
+```
+
+## Purchase Request Lifecycle
+
+A `PurchaseRequest` represents a logical attempt to acquire a ticket.
+
+Possible states include:
+
+```text
+PROCESSING
+RESERVED
+QUEUED
+PURCHASED
+SOLD_OUT
+RESERVATION_EXPIRED
+PAYMENT_DECLINED
+CANCELLED
+QUEUE_EXPIRED
+```
+
+Typical successful flow:
+
+```text
+PROCESSING
+    |
+    v
+RESERVED
+    |
+    v
+PURCHASED
+```
+
+Queued successful flow:
+
+```text
+PROCESSING
+    |
+    v
+QUEUED
+    |
+    v
+RESERVED
+    |
+    v
+PURCHASED
+```
+
+Queue expiry:
+
+```text
+PROCESSING
+    |
+    v
+QUEUED
+    |
+    v
+QUEUE_EXPIRED
+```
+
+The same client-provided `requestId` identifies the purchase request throughout its lifecycle.
+
+## Ticket Lifecycle
+
+Tickets use three states:
+
+```text
+AVAILABLE
+RESERVED
+SOLD
+```
+
+`RESERVED` represents temporary ownership.
+
+The permanent ticket holder is recorded only after the reservation is successfully confirmed and the ticket transitions to `SOLD`.
+
+## Reservation Lifecycle
+
+Reservations use:
+
+```text
+ACTIVE
+CONFIRMED
+EXPIRED
+CANCELLED
+```
+
+Each active reservation has an `expiresAt` timestamp.
+
+The timestamp is retained after completion as historical information even though it no longer controls the reservation once the reservation has left the `ACTIVE` state.
+
+## Queue Lifecycle
+
+Buyer queue entries use:
+
+```text
+ACTIVE
+FULFILLED
+EXPIRED
+CANCELLED
+```
+
+Queue entries are ordered using:
+
+```text
+created_at ASC, id ASC
+```
+
+This provides deterministic FIFO ordering when selecting the next eligible buyer.
+
+## Concurrency Model
+
+### Ticket Allocation
+
+Ticket allocation uses PostgreSQL:
+
+```sql
+FOR UPDATE SKIP LOCKED
+```
+
+An available ticket row is locked while the purchase request creates its reservation.
+
+This allows concurrent transactions to claim different tickets without serializing all buyers through an application-level lock.
+
+### Lock Contention vs Sold Out
+
+An empty `SKIP LOCKED` result does not necessarily mean that the sale is sold out.
+
+An `AVAILABLE` ticket may currently be locked by another transaction.
+
+The service therefore distinguishes:
+
+```text
+No immediately acquirable ticket
+        |
+        +-- AVAILABLE or RESERVED ticket exists --> QUEUED
+        |
+        +-- no AVAILABLE or RESERVED ticket ------> SOLD_OUT
+```
+
+The implementation intentionally does not perform bounded retry/jitter around ticket acquisition.
+
+This means that under contention, a buyer may enter the queue while another transaction temporarily holds an available ticket. This trades strict arrival fairness for a simpler database-coordinated allocation model.
+
+### Queue Promotion
+
+When a reservation expires, the service searches for the oldest eligible queue entry for the same sale version.
+
+Queue selection also uses row locking with `SKIP LOCKED`.
+
+This allows concurrent reservation expirations to promote different queued buyers without assigning the same queue entry multiple times.
+
+### Database Constraints
+
+Correctness is not enforced solely by application logic.
+
+The database also contains constraints and indexes protecting important invariants, including uniqueness of active reservations for a ticket and valid state combinations.
+
+## Scheduled Expiry
+
+Reservation and queue expiration are handled asynchronously using JobRunr.
+
+The service stores its own `ScheduledTask` records with states:
+
+```text
+PENDING
+PROCESSING
+COMPLETED
+FAILED
+CANCELLED
+```
+
+Supported scheduled task types include:
+
+```text
+RESERVATION_EXPIRY
+QUEUE_ENTRY_EXPIRY
+```
+
+When a reservation is confirmed, its logical expiry task is cancelled.
+
+Expiry handlers are also designed to be idempotent: if an already-completed or cancelled task is invoked again, it does not modify the completed purchase.
+
+## Idempotency
+
+Clients provide a UUID `requestId` when calling `/buy`.
+
+The same `requestId` represents the same logical purchase attempt.
+
+Repeating `/buy` with the same `requestId` returns the existing purchase state instead of allocating another ticket.
+
+A request ID is also associated with its original user so that another user cannot reuse it to access the same purchase request.
 
 ## Requirements
 
@@ -12,23 +312,25 @@ The service models a high-contention sale in which 50,000 buyers compete for 100
 
 ## Database Setup
 
-Create a PostgreSQL database:
+Create the PostgreSQL database used by the application:
 
 ```sql
-CREATE DATABASE ticket_stampede;
+CREATE DATABASE ticket_stampede_reservation;
 ```
 
-Configure the database password through the environment:
+Configure the application database user and set the password through the environment:
 
 ```bash
 export TICKET_STAMPEDE_DB_PASSWORD=<your-password>
 ```
 
-The application connects using the configuration in `application.properties`.
+The remaining datasource configuration is defined in `application.properties`.
 
-Flyway migrations run automatically when the application starts and create the required tables, constraints, and indexes.
+Flyway migrations run automatically when the application starts and create or update the required tables, constraints, and indexes.
 
-## Running the Seller
+Hibernate schema generation is disabled; Hibernate validates the Flyway-managed schema instead.
+
+## Running the Application
 
 From the project root:
 
@@ -36,22 +338,36 @@ From the project root:
 ./mvnw spring-boot:run
 ```
 
-The seller starts on:
+The application starts on:
 
 ```text
 http://localhost:8080
+```
+
+Swagger UI is available at:
+
+```text
+http://localhost:8080/swagger-ui/index.html
+```
+
+The JobRunr dashboard is available at:
+
+```text
+http://localhost:8000/dashboard
 ```
 
 ## API
 
 ### Reset a Sale
 
-Creates a new sale with the requested ticket capacity.
+Creates a new active sale with the requested ticket capacity.
 
 ```http
 POST /reset
 Content-Type: application/json
 ```
+
+Example:
 
 ```json
 {
@@ -59,33 +375,79 @@ Content-Type: application/json
 }
 ```
 
-Example response:
+A new sale version and its tickets are created.
 
-```json
-{
-  "saleVersionId": "<uuid>",
-  "capacity": 100,
-  "startedAt": "<timestamp>"
-}
-```
-
-### Buy a Ticket
+### Request a Ticket
 
 ```http
 POST /buy
 Content-Type: application/json
 ```
 
+Example:
+
 ```json
 {
   "userId": "user-1",
-  "requestId": "<uuid>"
+  "requestId": "3fa85f64-5717-4562-b3fc-2c963f660001"
 }
 ```
 
-A successful purchase returns the allocated ticket number. Repeating the request with the same `requestId` returns the same terminal result.
+Depending on current inventory, the request may return:
 
-When no tickets remain, the request returns a `SOLD_OUT` result.
+```text
+RESERVED
+QUEUED
+SOLD_OUT
+```
+
+A `RESERVED` response contains the allocated ticket and reservation information.
+
+A `QUEUED` response contains no ticket or reservation yet.
+
+### Create a Payment
+
+The payment endpoint simulates payment processing for an active reservation.
+
+A successful payment produces a payment ID that can subsequently be used to confirm the reservation.
+
+### Confirm a Reservation
+
+The confirmation endpoint verifies the simulated payment and confirms the associated reservation.
+
+Successful confirmation performs the state transition:
+
+```text
+Ticket:          RESERVED → SOLD
+PurchaseRequest: RESERVED → PURCHASED
+Reservation:     ACTIVE   → CONFIRMED
+```
+
+The associated reservation-expiry task is cancelled.
+
+### Poll a Purchase Request
+
+A client can poll the purchase request using the same `requestId` originally supplied to `/buy`.
+
+```http
+GET /purchase-requests/{requestId}
+```
+
+For example, a queued client may observe:
+
+```text
+QUEUED
+```
+
+and later:
+
+```text
+RESERVED
+```
+
+without creating a new purchase request.
+
+This allows the client to discover when a queued request has received a reservation.
 
 ### Sale Status
 
@@ -93,116 +455,176 @@ When no tickets remain, the request returns a `SOLD_OUT` result.
 GET /status
 ```
 
-Returns the current sale capacity, number of sold tickets, and the complete list of ticket holders.
+Returns information about the current sale and ticket state.
 
-## Load Testing
+## Example Queue Handoff
 
-The project includes an asynchronous buyer/load client that generates concurrent purchase requests and duplicate request IDs.
+Assume the sale contains one ticket.
 
-The primary performance workload uses:
+Buyer A calls `/buy`:
 
-- 100 tickets
-- 50,000 buyers
-- 66,666 HTTP requests including duplicate requests
-- concurrency levels from 10 to 300
+```text
+Buyer A        → RESERVED
+Ticket #1      → RESERVED
+Reservation A  → ACTIVE
+```
 
-For each workload the client records:
+Buyer B calls `/buy` while Buyer A holds the ticket:
 
-- throughput,
-- p50 latency,
-- p99 latency,
-- error count,
-- correctness invariant result.
+```text
+Buyer B → QUEUED
+```
 
-The detailed benchmark results and bottleneck investigation are available in [`results/README.md`](results/README.md).
+Buyer A does not complete payment before the reservation deadline.
 
-## Correctness
+The reservation expiry job executes:
 
-The load client verifies that:
+```text
+Buyer A PurchaseRequest → RESERVATION_EXPIRED
+Reservation A           → EXPIRED
+```
 
-1. The service never sells more tickets than the configured capacity.
-2. The same ticket number is never issued twice.
-3. Reusing the same `requestId` never allocates a second ticket.
-4. `/status` agrees with the tickets observed as successfully issued.
+Instead of making the ticket publicly available first, the service can transfer it directly to the next eligible queued buyer:
 
-PostgreSQL transactions, row locking, uniqueness constraints, and idempotent purchase requests are used to preserve these guarantees under concurrent requests.
-## Naive Implementation and Failing Run
+```text
+Buyer B PurchaseRequest → RESERVED
+Reservation B           → ACTIVE
+Ticket #1               → remains RESERVED
+```
 
-The initial submission went directly to the database-coordinated implementation and omitted the brief's requested naive-first experiment. 
-I added the deliberately unsafe version afterward to demonstrate the race condition that the final implementation prevents.
+Buyer B can then complete payment and confirmation:
 
-The naive implementation is preserved on the `naiive` branch. It selects the first AVAILABLE ticket without row locking, 
-allowing concurrent transactions to observe and purchase the same ticket.
+```text
+Buyer B PurchaseRequest → PURCHASED
+Reservation B           → CONFIRMED
+Ticket #1               → SOLD
+```
 
-A test with 5 tickets, 30 logical buyers, and concurrency 10 produced:
+## Correctness Invariants
 
-- 30 logical requests reported `PURCHASED`
-- only 4 tickets were recorded as sold in `/status`
-- multiple distinct request IDs received the same ticket numbers
-- overselling invariant: FAIL
-- unique ticket issuance invariant: FAIL
-- idempotency invariant: PASS
-- status consistency invariant: PASS
+The implementation is designed to preserve several important invariants:
 
-The raw failing run is available in [`results/naive_run_results.txt`](results/naive_run_results.txt).
+1. A ticket cannot be permanently sold to multiple users.
+2. The number of sold tickets cannot exceed the configured sale capacity.
+3. A purchase request cannot acquire multiple tickets through retries.
+4. A ticket can have at most one active reservation.
+5. A confirmed reservation corresponds to a sold ticket.
+6. A queued purchase request does not own a ticket until it is promoted.
+7. A queue entry can only be fulfilled once.
+8. Expiration and confirmation must not both successfully take ownership of the same active reservation.
+9. Queue promotion and queue expiry must not both successfully complete the same queue entry.
+10. Re-execution of completed/cancelled scheduled expiry work must not corrupt terminal state.
 
-The final implementation fixes this by claiming ticket rows with PostgreSQL `FOR UPDATE SKIP LOCKED`, 
-distinguishing temporary lock contention from genuine sell-out, and retaining database constraints as additional correctness protection.
+These guarantees are implemented using a combination of transactions, pessimistic row locking, database constraints, idempotent request handling, and explicit domain-state transitions.
 
-## Concurrency Approach
+## Verified Functional Scenarios
 
-Ticket allocation uses PostgreSQL `FOR UPDATE SKIP LOCKED` so concurrent buyers can claim different available ticket rows without relying on application-level locks.
+The reservation and buyer-queue implementation has been manually verified for the following flows:
 
-An empty `SKIP LOCKED` result is not immediately treated as sold out because remaining AVAILABLE tickets may currently be locked by another transaction. The service distinguishes contention from genuine sell-out and performs bounded retries for temporary contention.
+```text
+AVAILABLE → RESERVED
+```
 
-Concurrent sale resets are serialized using a PostgreSQL transaction-scoped advisory lock.
+```text
+RESERVED → RESERVATION_EXPIRED
+```
 
-More detailed reasoning and trade-offs are documented in [`DECISIONS.md`](DECISIONS.md).
+```text
+QUEUED → RESERVED
+```
 
-## Performance Investigation
+```text
+QUEUED → RESERVED → PURCHASED
+```
 
-The service was tested across concurrency levels from 10 to 300.
+```text
+QUEUED → QUEUE_EXPIRED
+```
 
-The investigation included:
+```text
+RESERVED → PURCHASED
+```
 
-- throughput and latency scaling,
-- HikariCP connection-pool saturation,
-- payment-latency diagnostics,
-- PostgreSQL `EXPLAIN ANALYZE`,
-- a partial index for AVAILABLE tickets,
-- controlled V1/V2 performance comparison,
-- behavior under a simulated 10-second datastore slowdown.
+and:
 
-All correctness invariants continued to pass throughout the primary performance sweeps and datastore degradation test.
+```text
+all tickets SOLD → new request returns SOLD_OUT
+```
 
-See [`results/README.md`](results/README.md) for the measurements, graphs, query plans, and conclusions.
+Polling a purchase request has also been verified across queue promotion and purchase completion.
+
+## Concurrency Testing
+
+The project originally included load testing for concurrent ticket allocation, including workloads with tens of thousands of purchase requests.
+
+The reservation and buyer-queue architecture introduces additional concurrency scenarios that require separate validation.
+
+Important scenarios include:
+
+- multiple buyers competing for limited available tickets,
+- multiple buyers entering the queue concurrently,
+- multiple reservation expirations promoting queued buyers concurrently,
+- reservation confirmation racing reservation expiry,
+- queue expiry racing queue promotion,
+- duplicate `/buy` requests using the same `requestId`,
+- sale reset interacting with active purchase traffic.
+
+Small deterministic concurrency tests should be used first to validate invariants before running larger stress workloads.
+
+A larger workload can then simulate tens of thousands of concurrent buyers and verify the final database state against the expected invariants.
+
+## Naive Implementation and Race-Condition Experiment
+
+An earlier version of the project includes a deliberately unsafe ticket-allocation implementation on the `naiive` branch.
+
+That implementation selects an available ticket without the row-locking strategy used by the final allocation design.
+
+Under concurrent load, multiple transactions can observe the same ticket before the competing transaction completes, demonstrating why database-coordinated allocation is necessary.
+
+The experiment is retained as a comparison against the concurrency-safe implementation.
+
+Historical benchmark and naive-run results should be interpreted as measurements of the earlier immediate-purchase architecture rather than the current reservation-and-queue implementation.
+
+## Design Philosophy
+
+Ticket Stampede intentionally keeps coordination primarily inside PostgreSQL rather than introducing additional distributed infrastructure prematurely.
+
+The current design does not require:
+
+- Redis-based distributed locks
+- Kafka-based ticket allocation
+- application-wide synchronized locks
+
+PostgreSQL already provides the transactional isolation, row locking, uniqueness enforcement, and atomic state transitions required for the current architecture.
+
+Additional infrastructure would only be introduced if future scale or architectural requirements justified the added operational complexity.
 
 ## Project Documentation
 
-- [`DECISIONS.md`](DECISIONS.md) — architecture, concurrency decisions, and trade-offs.
-- [`results/README.md`](results/README.md) — performance investigation and results.
-- [`results/explain/v1.txt`](results/explain/v1.txt) — query plans before the partial index.
-- [`results/explain/v2.txt`](results/explain/v2.txt) — query plans after the partial index.
-- [`logs/`](logs/) — AI-assisted development logs.
+- `DECISIONS.md` — architecture decisions, concurrency reasoning, alternatives, and trade-offs.
+- `src/main/resources/db/migration/` — Flyway schema migrations.
+- `results/` — historical load-test and performance investigation artifacts.
+- `logs/` — retained AI-assisted development logs.
 
-## Concurrency Scenarios
+## Current Status
 
-The project includes targeted concurrency scenarios for exercising race conditions and validating behavior beyond the standard API flow.
+Implemented:
 
-The scenarios cover:
+- ticket allocation
+- idempotent purchase requests
+- temporary reservations
+- simulated payments
+- purchase confirmation
+- reservation expiry
+- buyer queue
+- FIFO queue promotion
+- queue expiry
+- purchase-request polling
+- scheduled background expiry
 
-- many buyers purchasing concurrently from the same sale,
-- purchases occurring concurrently with a sale reset,
-- purchases occurring concurrently with `/status` reads,
-- multiple concurrent `/reset` requests,
-- purchases, resets, and status requests running concurrently.
+Next:
 
-These scenarios are intended to exercise transaction boundaries, ticket allocation, reset behavior, idempotency, and status consistency under concurrent operations.
-
-They can be run using the `ConcurrencyScenario` client:
-
-```text
-/src/main/java/org/ticketstampede/client/ConcurrencyScenario.java
-```
-
-The individual scenarios can be enabled from its `main` method depending on the behavior being tested.
+- targeted concurrency tests for reservation and queue races
+- larger concurrent buyer stress test
+- validation of final database invariants under load
+- updated performance measurements for the reservation-and-queue architecture
