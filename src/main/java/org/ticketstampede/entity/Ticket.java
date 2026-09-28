@@ -60,7 +60,7 @@ public class Ticket {
 
     public void markAsSold(String holderUserId)
     {
-        if (this.status != TicketStatus.AVAILABLE)
+        if (this.status != TicketStatus.RESERVED)
         {
             throw new IllegalStateException("Ticket is not available");
         }
@@ -71,6 +71,24 @@ public class Ticket {
         this.holderUserId = holderUserId;
         this.status = TicketStatus.SOLD;
         this.soldAt = Instant.now();
+    }
+
+    public void markAsReserved()
+    {
+        if (this.status != TicketStatus.AVAILABLE)
+        {
+            throw new IllegalStateException("Ticket is not available");
+        }
+        this.status = TicketStatus.RESERVED;
+    }
+
+    public void markAsAvailable()
+    {
+        if (this.status != TicketStatus.RESERVED)
+        {
+            throw new IllegalStateException("Only a reserved ticket can be made available");
+        }
+        this.status = TicketStatus.AVAILABLE;
     }
 
     public UUID getId(){ return id;}

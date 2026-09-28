@@ -3,5 +3,9 @@ package org.ticketstampede.entity;
 public enum PurchaseRequestStatus {
     PURCHASED,
     SOLD_OUT,
-    PROCESSING
+    PROCESSING,
+    RESERVED,
+    RESERVATION_EXPIRED,
+    PAYMENT_DECLINED,
+    CANCELLED
 }

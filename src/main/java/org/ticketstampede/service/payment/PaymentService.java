@@ -1,9 +1,10 @@
 package org.ticketstampede.service.payment;
 
-import org.ticketstampede.entity.PaymentStatus;
+import org.ticketstampede.dto.SimulatedPayment;
 
 import java.util.UUID;
 
 public interface PaymentService {
-    PaymentStatus authorize(UUID requestId, String userId);
+    SimulatedPayment authorize(UUID reservationId, String userId);
+    SimulatedPayment verifyPayment(UUID paymentId);
 }

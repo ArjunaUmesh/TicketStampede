@@ -2,6 +2,7 @@ package org.ticketstampede.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ticketstampede.dto.*;
+import org.ticketstampede.entity.PurchaseRequestStatus;
 import org.ticketstampede.entity.PurchaseStatus;
 import java.net.URI;
 import java.net.http.HttpResponse;
@@ -76,17 +77,17 @@ public class ConcurrencyScenario {
 
         int purchasedTicketsCount = buyTicketResponses
                 .stream()
-                .filter(buyTicketResponse -> buyTicketResponse.status()== PurchaseStatus.PURCHASED)
+                .filter(buyTicketResponse -> buyTicketResponse.status()== PurchaseRequestStatus.PURCHASED)
                 .map(BuyTicketResponse::requestId)
                 .collect(Collectors.toSet())
                 .size();
         long soldOutResponses = buyTicketResponses
                 .stream()
-                .filter(buyTicketResponse -> buyTicketResponse.status()== PurchaseStatus.SOLD_OUT)
+                .filter(buyTicketResponse -> buyTicketResponse.status()== PurchaseRequestStatus.SOLD_OUT)
                 .count();
         Set<Integer> purchasedTicketNumbers = buyTicketResponses
                 .stream()
-                .filter(response -> response.status() == PurchaseStatus.PURCHASED)
+                .filter(response -> response.status() == PurchaseRequestStatus.PURCHASED)
                 .map(BuyTicketResponse::ticketNumber)
                 .collect(Collectors.toSet());
         Set<Integer> statusTicketNumbers = statusResponse
@@ -98,7 +99,7 @@ public class ConcurrencyScenario {
         boolean duplicateRequestsConsistent = true;
         for (BuyTicketResponse response : buyTicketResponses)
         {
-            if (response.status() != PurchaseStatus.PURCHASED)
+            if (response.status() != PurchaseRequestStatus.PURCHASED)
             {
                 continue;
             }

@@ -1,0 +1,2 @@
+ALTER TABLE purchase_request
+ALTER COLUMN status TYPE VARCHAR(32);

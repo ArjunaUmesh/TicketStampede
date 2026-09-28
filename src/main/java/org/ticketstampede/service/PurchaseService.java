@@ -1,14 +1,14 @@
 package org.ticketstampede.service;
 
+import org.jobrunr.scheduling.JobScheduler;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.stereotype.Service;
 import org.ticketstampede.dto.BuyTicketResponse;
+import org.ticketstampede.dto.SimulatedPayment;
 import org.ticketstampede.entity.*;
 import org.ticketstampede.exception.*;
-import org.ticketstampede.repository.PurchaseRequestRepository;
-import org.ticketstampede.repository.SaleVersionRepository;
-import org.ticketstampede.repository.TicketRepository;
+import org.ticketstampede.repository.*;
 import org.ticketstampede.service.payment.PaymentService;
 
 import java.time.Instant;
@@ -22,17 +22,30 @@ public class PurchaseService {
     private final PurchaseRequestRepository purchaseRequestRepository;
     private final SaleVersionRepository saleVersionRepository;
     private final PaymentService paymentService;
+    private final ReservationRepository reservationRepository;
+    private final ScheduleTaskRepository scheduleTaskRepository;
+    private final ReservationService reservationService;
     private static final int MAX_CONTENTION_RETRIES = 3;
+    private final JobScheduler jobScheduler;
+
 
     public PurchaseService(TicketRepository ticketRepository,
                            PurchaseRequestRepository purchaseRequestRepository,
                            SaleVersionRepository saleVersionRepository,
-                           PaymentService paymentService)
+                           ScheduleTaskRepository scheduleTaskRepository,
+                           PaymentService paymentService,
+                           ReservationRepository reservationRepository,
+                           ReservationService reservationService,
+                           JobScheduler jobScheduler)
     {
         this.ticketRepository = ticketRepository;
         this.purchaseRequestRepository = purchaseRequestRepository;
         this.saleVersionRepository = saleVersionRepository;
+        this.reservationRepository = reservationRepository;
+        this.scheduleTaskRepository = scheduleTaskRepository;
         this.paymentService = paymentService;
+        this.reservationService = reservationService;
+        this.jobScheduler = jobScheduler;
     }
 
     //READ_COMMITTED = on each new query, read the latest committed state available at the start of that query.
@@ -51,7 +64,10 @@ public class PurchaseService {
         {
             if(purchaseRequest.get().getUserId().equals(userId))
             {
-                return convertToBuyTicketResponse(purchaseRequest.get());
+                Reservation reservation = reservationRepository
+                        .findByPurchaseRequestId(purchaseRequest.get().getId())
+                        .orElse(null);
+                return convertToBuyTicketResponse(purchaseRequest.get(),reservation);
             }
             throw new RequestIdUserMismatchException();
         }
@@ -64,7 +80,10 @@ public class PurchaseService {
             {
                 throw new RequestIdUserMismatchException();
             }
-            return convertToBuyTicketResponse(existingPurchaseRequest);
+            Reservation reservation = reservationRepository
+                    .findByPurchaseRequestId(existingPurchaseRequest.getId())
+                    .orElse(null);
+            return convertToBuyTicketResponse(existingPurchaseRequest,reservation);
         }
         PurchaseRequest newPurchaseRequest = purchaseRequestRepository.findByRequestId(requestId).orElseThrow();
 
@@ -89,7 +108,7 @@ public class PurchaseService {
             if(!anyAvailableTicket)
             {
                 newPurchaseRequest.markAsSoldOut();
-                return convertToBuyTicketResponse(newPurchaseRequest);
+                return convertToBuyTicketResponse(newPurchaseRequest,null);
             }
             if(attempt == MAX_CONTENTION_RETRIES)
             {
@@ -109,37 +128,48 @@ public class PurchaseService {
             }
         }
 
-        //6. Try payment
-        if(paymentService.authorize(requestId,userId)== PaymentStatus.RETRYABLE_FAILURE)
-        {
-            throw new RetryablePaymentException();
-        }
-
-        // 7. Mark ticket as sold and purchase request as purchased
-        ticket.markAsSold(userId);
-        newPurchaseRequest.markAsPurchased(ticket);
-        return convertToBuyTicketResponse(newPurchaseRequest);
+        //6. Create a reservation
+        ticket.markAsReserved();
+        newPurchaseRequest.markAsReserved(ticket);
+        Reservation reservation = new Reservation(ticket,newPurchaseRequest,userId);
+        reservationRepository.save(reservation);
+        ScheduledTask scheduledTask = new ScheduledTask(
+                ScheduledTaskType.RESERVATION_EXPIRY,
+                reservation.getId(),
+                reservation.getExpiresAt());
+        scheduleTaskRepository.save(scheduledTask);
+        jobScheduler.schedule(scheduledTask.getExecuteAt(),
+                ()->reservationService.expireReservation(
+                        scheduledTask.getId()
+                )
+        );
+        return convertToBuyTicketResponse(newPurchaseRequest,reservation);
     }
 
-    private BuyTicketResponse convertToBuyTicketResponse(PurchaseRequest purchaseRequest)
+    public BuyTicketResponse confirmPurchase(UUID paymentId)
     {
-        PurchaseStatus purchaseStatus =
-                switch(purchaseRequest.getStatus())
-                {
-                    case PURCHASED -> PurchaseStatus.PURCHASED;
-                    case SOLD_OUT -> PurchaseStatus.SOLD_OUT;
-                    case PROCESSING -> throw new RequestStillProcessingException();
-                };
+        SimulatedPayment payment = paymentService.verifyPayment(paymentId);
+        return reservationService.confirmReservation(payment);
+    }
+
+    private BuyTicketResponse convertToBuyTicketResponse(PurchaseRequest purchaseRequest,Reservation reservation)
+    {
         Integer ticketNumber = null;
-        if(purchaseRequest.getStatus().equals(PurchaseRequestStatus.PURCHASED))
+        if(purchaseRequest.getTicket()!=null)
         {
             ticketNumber = purchaseRequest.getTicket().getTicketNumber();
         }
         return new BuyTicketResponse(
-                purchaseStatus,
+                purchaseRequest.getStatus(),
                 purchaseRequest.getSaleVersion().getId(),
                 purchaseRequest.getRequestId(),
                 ticketNumber,
-                purchaseRequest.getCompletedAt());
+                purchaseRequest.getCompletedAt(),
+                reservation != null ? reservation.getId() : null,
+                reservation != null ? reservation.getReservationStatus() : null,
+                reservation != null ? reservation.getExpiresAt() : null
+                );
     }
+
+
 }

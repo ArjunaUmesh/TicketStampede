@@ -1,20 +1,15 @@
 package org.ticketstampede.dto;
 
 import org.ticketstampede.entity.PurchaseRequestStatus;
-import org.ticketstampede.entity.PurchaseStatus;
 import org.ticketstampede.entity.ReservationStatus;
-
 import java.time.Instant;
 import java.util.UUID;
 
-public record BuyTicketResponse(
-        PurchaseRequestStatus status,
-        UUID saleVersionId,
-        UUID requestId,
+public record ConfirmPurchaseResponse(
+        PurchaseRequestStatus purchaseRequestStatus,
         Integer ticketNumber,
-        Instant completedAt,
         UUID reservationId,
         ReservationStatus reservationStatus,
-        Instant reservationExpiresAt
+        Instant completedAt
 )
 {}

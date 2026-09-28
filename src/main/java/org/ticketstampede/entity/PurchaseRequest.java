@@ -77,9 +77,9 @@ public class PurchaseRequest {
 
     public void markAsPurchased(Ticket ticket)
     {
-        if (this.status != PurchaseRequestStatus.PROCESSING)
+        if (this.status != PurchaseRequestStatus.RESERVED)
         {
-            throw new IllegalStateException("Only a processing request can be purchased");
+            throw new IllegalStateException("Only a reserved request can be purchased");
         }
         if (this.saleVersion == null)
         {
@@ -121,6 +121,35 @@ public class PurchaseRequest {
         }
         this.completedAt = Instant.now();
         this.status = PurchaseRequestStatus.SOLD_OUT;
+    }
+
+    public void markAsReserved(Ticket ticket)
+    {
+        if (this.status != PurchaseRequestStatus.PROCESSING)
+        {
+            throw new IllegalStateException("Only a processing request can be reserved");
+        }
+
+        if (this.saleVersion == null)
+        {
+            throw new IllegalStateException("Purchase request must be bound to a sale");
+        }
+        this.ticket = ticket;
+        this.status = PurchaseRequestStatus.RESERVED;
+    }
+
+    public void markAsReservationExpired()
+    {
+        if (this.status != PurchaseRequestStatus.RESERVED)
+        {
+            throw new IllegalStateException("Only a reserved ticket can expire");
+        }
+        if (this.saleVersion == null)
+        {
+            throw new IllegalStateException("Purchase request must be bound to a sale");
+        }
+        this.completedAt = Instant.now();
+        this.status = PurchaseRequestStatus.RESERVATION_EXPIRED;
     }
 
     public UUID getId(){ return id;}
