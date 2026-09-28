@@ -7,5 +7,7 @@ public enum PurchaseRequestStatus {
     RESERVED,
     RESERVATION_EXPIRED,
     PAYMENT_DECLINED,
-    CANCELLED
+    CANCELLED,
+    QUEUED,
+    QUEUE_EXPIRED
 }

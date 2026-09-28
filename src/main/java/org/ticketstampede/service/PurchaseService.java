@@ -11,10 +11,10 @@ import org.ticketstampede.exception.*;
 import org.ticketstampede.repository.*;
 import org.ticketstampede.service.payment.PaymentService;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PurchaseService {
@@ -24,18 +24,22 @@ public class PurchaseService {
     private final PaymentService paymentService;
     private final ReservationRepository reservationRepository;
     private final ScheduleTaskRepository scheduleTaskRepository;
+    private final BuyerQueueRepository buyerQueueRepository;
     private final ReservationService reservationService;
-    private static final int MAX_CONTENTION_RETRIES = 3;
+    private final BuyerQueueService buyerQueueService;
     private final JobScheduler jobScheduler;
+    private static final Duration QUEUE_TTL = Duration.ofSeconds(60*5);
 
 
     public PurchaseService(TicketRepository ticketRepository,
                            PurchaseRequestRepository purchaseRequestRepository,
                            SaleVersionRepository saleVersionRepository,
                            ScheduleTaskRepository scheduleTaskRepository,
+                           BuyerQueueRepository buyerQueueRepository,
                            PaymentService paymentService,
                            ReservationRepository reservationRepository,
                            ReservationService reservationService,
+                           BuyerQueueService buyerQueueService,
                            JobScheduler jobScheduler)
     {
         this.ticketRepository = ticketRepository;
@@ -43,8 +47,10 @@ public class PurchaseService {
         this.saleVersionRepository = saleVersionRepository;
         this.reservationRepository = reservationRepository;
         this.scheduleTaskRepository = scheduleTaskRepository;
+        this.buyerQueueRepository = buyerQueueRepository;
         this.paymentService = paymentService;
         this.reservationService = reservationService;
+        this.buyerQueueService = buyerQueueService;
         this.jobScheduler = jobScheduler;
     }
 
@@ -94,38 +100,28 @@ public class PurchaseService {
 
         //5. Acquire available ticket that isn't locked
         Ticket ticket = null;
-        for(int attempt = 0; attempt <= MAX_CONTENTION_RETRIES; attempt++)
+        Optional<Ticket> candidate = ticketRepository.findAvailableTicket(activeSaleVersion.getId());
+        if(candidate.isPresent())
         {
-            Optional<Ticket> candidate = ticketRepository.findAvailableTicket(activeSaleVersion.getId());
-
-            if(candidate.isPresent())
-            {
-                ticket = candidate.get();
-                break;
-            }
-            //If no available ticket found that's not locked, query to find if any there exists any available ticket
-            boolean anyAvailableTicket = ticketRepository.existsBySaleVersionIdAndStatus(activeSaleVersion.getId(), TicketStatus.AVAILABLE);
-            if(!anyAvailableTicket)
+            ticket = candidate.get();
+        }else
+        {
+            boolean anyPotentialTicket = ticketRepository.existsBySaleVersionIdAndStatus(activeSaleVersion.getId(), TicketStatus.AVAILABLE) ||
+                                         ticketRepository.existsBySaleVersionIdAndStatus(activeSaleVersion.getId(), TicketStatus.RESERVED);
+            if(!anyPotentialTicket)
             {
                 newPurchaseRequest.markAsSoldOut();
                 return convertToBuyTicketResponse(newPurchaseRequest,null);
             }
-            if(attempt == MAX_CONTENTION_RETRIES)
-            {
-                throw new RetryableTicketError();
-            }
-
-            //retry with jitter to reduce probability that too many transactions retry at the same time
-            long jitterMs = ThreadLocalRandom.current().nextLong(5, 21);
-            try
-            {
-                Thread.sleep(jitterMs);
-            }
-            catch (InterruptedException e)
-            {
-                Thread.currentThread().interrupt();
-                throw new RetryableTicketError();
-            }
+            //If not sold out and there exists at least one locked or reserved ticket then buyer is pushed onto a queue
+            newPurchaseRequest.markAsQueued();
+            BuyerQueueEntry buyerQueueEntry = new BuyerQueueEntry(userId,newPurchaseRequest,Instant.now().plus(QUEUE_TTL));
+            buyerQueueRepository.save(buyerQueueEntry);
+            ScheduledTask scheduledTask = new ScheduledTask(ScheduledTaskType.QUEUE_ENTRY_EXPIRY,buyerQueueEntry.getId(),buyerQueueEntry.getExpiresAt());
+            scheduleTaskRepository.save(scheduledTask);
+            jobScheduler.schedule(scheduledTask.getExecuteAt(), ()->buyerQueueService.expireQueueEntry(scheduledTask.getId())
+            );
+            return convertToBuyTicketResponse(newPurchaseRequest,null);
         }
 
         //6. Create a reservation
@@ -138,10 +134,7 @@ public class PurchaseService {
                 reservation.getId(),
                 reservation.getExpiresAt());
         scheduleTaskRepository.save(scheduledTask);
-        jobScheduler.schedule(scheduledTask.getExecuteAt(),
-                ()->reservationService.expireReservation(
-                        scheduledTask.getId()
-                )
+        jobScheduler.schedule(scheduledTask.getExecuteAt(), ()->reservationService.expireReservation(scheduledTask.getId())
         );
         return convertToBuyTicketResponse(newPurchaseRequest,reservation);
     }
@@ -171,5 +164,12 @@ public class PurchaseService {
                 );
     }
 
+    public BuyTicketResponse getPurchaseRequest(UUID requestId) {
+        PurchaseRequest purchaseRequest = purchaseRequestRepository.findByRequestId(requestId)
+                .orElseThrow(() -> new IllegalStateException("Purchase request not found"));
+        Reservation reservation = reservationRepository.findByPurchaseRequestId(purchaseRequest.getId())
+                .orElse(null);
+        return convertToBuyTicketResponse(purchaseRequest, reservation);
+    }
 
 }

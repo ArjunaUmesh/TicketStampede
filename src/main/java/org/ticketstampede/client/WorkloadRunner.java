@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ticketstampede.dto.*;
 import org.ticketstampede.entity.PurchaseRequestStatus;
-import org.ticketstampede.entity.PurchaseStatus;
 import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;

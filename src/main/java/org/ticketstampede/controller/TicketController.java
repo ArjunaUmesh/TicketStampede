@@ -61,4 +61,9 @@ public class TicketController {
         return statusService.getStatus();
     }
 
+    @GetMapping("/purchase-request/{requestId}")
+    public BuyTicketResponse purchase_request(@Valid UUID requestId)
+    {
+        return purchaseService.getPurchaseRequest(requestId);
+    }
 }

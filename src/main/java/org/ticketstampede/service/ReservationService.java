@@ -1,49 +1,56 @@
 package org.ticketstampede.service;
 
 import jakarta.transaction.Transactional;
+import org.jobrunr.scheduling.JobScheduler;
 import org.springframework.stereotype.Service;
 import org.ticketstampede.dto.BuyTicketResponse;
 import org.ticketstampede.dto.SimulatedPayment;
 import org.ticketstampede.entity.*;
 import org.ticketstampede.exception.RetryablePaymentException;
+import org.ticketstampede.repository.BuyerQueueRepository;
 import org.ticketstampede.repository.ReservationRepository;
 import org.ticketstampede.repository.ScheduleTaskRepository;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final ScheduleTaskRepository scheduleTaskRepository;
+    private final BuyerQueueRepository buyerQueueRepository;
+    private final JobScheduler jobScheduler;
 
-    public ReservationService(ReservationRepository reservationRepository,ScheduleTaskRepository scheduleTaskRepository)
+    public ReservationService(ReservationRepository reservationRepository,ScheduleTaskRepository scheduleTaskRepository,BuyerQueueRepository buyerQueueRepository,JobScheduler jobScheduler)
     {
         this.reservationRepository = reservationRepository;
         this.scheduleTaskRepository = scheduleTaskRepository;
+        this.buyerQueueRepository = buyerQueueRepository;
+        this.jobScheduler = jobScheduler;
     }
 
     @Transactional
     public void expireReservation(UUID scheduledTaskId)
     {
-        ScheduledTask scheduledTask = scheduleTaskRepository
+        ScheduledTask reservationExpiryScheduledTask = scheduleTaskRepository
                 .findById(scheduledTaskId)
                 .orElseThrow(()->new IllegalStateException("Schedule task not found"));
-        if(scheduledTask.getScheduledTaskStatus() == ScheduledTaskStatus.COMPLETED ||
-                scheduledTask.getScheduledTaskStatus() == ScheduledTaskStatus.CANCELLED)
+        if(reservationExpiryScheduledTask.getScheduledTaskStatus() == ScheduledTaskStatus.COMPLETED ||
+                reservationExpiryScheduledTask.getScheduledTaskStatus() == ScheduledTaskStatus.CANCELLED)
         {
             //multiple reservation expiry tasks. If schedule task has been already executed and this is a duplicate call
             return;
         }
-        if(scheduledTask.getScheduledTaskType()!= ScheduledTaskType.RESERVATION_EXPIRY ||
-                scheduledTask.getScheduledTaskStatus()!= ScheduledTaskStatus.PENDING)
+        if(reservationExpiryScheduledTask.getScheduledTaskType()!= ScheduledTaskType.RESERVATION_EXPIRY ||
+                reservationExpiryScheduledTask.getScheduledTaskStatus()!= ScheduledTaskStatus.PENDING)
         {
             throw new IllegalStateException("task is not a reservation expiry task");
         }
         Reservation reservation = reservationRepository
                 //lock the reservation row so that confirmation and expiration don't occur at the same time
-                .findByIdForUpdate(scheduledTask.getReferenceId())
+                .findByIdForUpdate(reservationExpiryScheduledTask.getReferenceId())
                 .orElseThrow(()->new IllegalStateException("Reservation not found"));
 
         //Additional check to ensure that the reservation has actually expired
@@ -51,13 +58,13 @@ public class ReservationService {
         {
             throw new IllegalStateException("Reservation has not expired yet");
         }
-        scheduledTask.markAsProcessing();
+        reservationExpiryScheduledTask.markAsProcessing();
         switch(reservation.getReservationStatus())
         {
             case CONFIRMED,CANCELLED,EXPIRED ->
             {
                 //Reservation already reached terminal state
-                scheduledTask.markAsCancelled();
+                reservationExpiryScheduledTask.markAsCancelled();
             }
             case ACTIVE ->
             {
@@ -71,10 +78,51 @@ public class ReservationService {
                 {
                     throw new IllegalStateException("Purchase request isn't reserved any more");
                 }
-                ticket.markAsAvailable();
+
+                //instead of returning an expired reserved ticket back , we try assigning to the next buyer in the queue
+                //expire the current purchase request and reservation
                 purchaseRequest.markAsReservationExpired();
                 reservation.markAsExpired();
-                scheduledTask.markAsCompleted();
+                //Obtain the front of the buyer queue that is active and corresponds to the current sale version
+                Optional<BuyerQueueEntry> optionalBuyerQueueEntry = buyerQueueRepository.findFirstEligibleQueueEntry(purchaseRequest.getSaleVersion().getId());
+                //if there exists no buyer in the queue, then the ticket can be made active
+                if(optionalBuyerQueueEntry.isEmpty())
+                {
+                    ticket.markAsAvailable();
+
+                }else
+                {
+                    //obtain the buyer queue
+                    BuyerQueueEntry buyerQueueEntry = optionalBuyerQueueEntry.get();
+                    //Obtain the purchase request for the queued buyer
+                    PurchaseRequest queuedPurchaseRequest = buyerQueueEntry.getPurchaseRequest();
+                    //reserve the current ticket that has expired for the queued buyer
+                    queuedPurchaseRequest.markAsReserved(ticket);
+                    reservationRepository.flush();
+                    //create a reservation for the queued buyer and the current ticket
+                    Reservation queuedReservation = new Reservation(ticket,queuedPurchaseRequest, buyerQueueEntry.getUserId());
+                    reservationRepository.save(queuedReservation);
+                    //create a scheduled reservation expiry task for the reservation of the queued buyer
+                    ScheduledTask queuedScheduledTask = new ScheduledTask(ScheduledTaskType.RESERVATION_EXPIRY,queuedReservation.getId(),queuedReservation.getExpiresAt());
+                    scheduleTaskRepository.save(queuedScheduledTask);
+                    //schedule a job to expire the reservation for the queued buyer and the current ticket
+                    jobScheduler.schedule(
+                            queuedScheduledTask.getExecuteAt(),
+                            () -> expireReservation(queuedScheduledTask.getId())
+                    );
+                    //mark the queued buyer as fulfilled , obtained a ticket that has just expired
+                    buyerQueueEntry.markAsFulfilled();
+                    //find and cancel the queue expiry task for the queued buyer
+                    ScheduledTask queueExpiryTask = scheduleTaskRepository
+                            .findByScheduledTaskTypeAndReferenceId(
+                                    ScheduledTaskType.QUEUE_ENTRY_EXPIRY,
+                                    buyerQueueEntry.getId())
+                            .orElseThrow(() ->
+                                    new IllegalStateException("Queue expiry task not found"));
+                    queueExpiryTask.markAsCancelled();
+                }
+                //mark the initial reservation expiry as complete
+                reservationExpiryScheduledTask.markAsCompleted();
             }
         }
     }
