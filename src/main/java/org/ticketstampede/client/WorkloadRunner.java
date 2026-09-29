@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.ticketstampede.dto.*;
 import org.ticketstampede.entity.PurchaseRequestStatus;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import static java.lang.Math.min;
@@ -238,6 +240,30 @@ public class WorkloadRunner {
     {
         int index = (int) Math.ceil(percentile * sortedLatencies.size()) - 1;
         return sortedLatencies.get(index);
+    }
+
+    private void randomDelay(Duration min, Duration max)
+    {
+        long minMillis = min.toMillis();
+        long maxMillis = max.toMillis();
+
+        long delayMillis = ThreadLocalRandom.current()
+                .nextLong(minMillis, maxMillis + 1);
+
+        sleep(Duration.ofMillis(delayMillis));
+    }
+
+    private void sleep(Duration duration)
+    {
+        try
+        {
+            Thread.sleep(duration.toMillis());
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Buyer simulation interrupted", e);
+        }
     }
 
 }

@@ -41,14 +41,14 @@ public class Reservation {
 
     protected Reservation(){}
 
-    public Reservation(Ticket ticket, PurchaseRequest purchaseRequest, String userId)
+    public Reservation(Ticket ticket, PurchaseRequest purchaseRequest, String userId,Instant expiresAt)
     {
         this.ticket = ticket;
         this.purchaseRequest = purchaseRequest;
         this.userId = userId;
         this.reservationStatus = ReservationStatus.ACTIVE;
         this.createdAt = Instant.now();
-        this.expiresAt = createdAt.plus(RESERVATION_TTL);
+        this.expiresAt = expiresAt;//createdAt.plus(RESERVATION_TTL);
     }
 
     public void markAsExpired()

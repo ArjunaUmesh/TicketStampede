@@ -1,6 +1,7 @@
 package org.ticketstampede.service;
 
 import org.jobrunr.scheduling.JobScheduler;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.stereotype.Service;
@@ -28,7 +29,8 @@ public class PurchaseService {
     private final ReservationService reservationService;
     private final BuyerQueueService buyerQueueService;
     private final JobScheduler jobScheduler;
-    private static final Duration QUEUE_TTL = Duration.ofSeconds(60*5);
+    private final Duration reservationTtl;
+    private final Duration queueTtl;
 
 
     public PurchaseService(TicketRepository ticketRepository,
@@ -40,7 +42,10 @@ public class PurchaseService {
                            ReservationRepository reservationRepository,
                            ReservationService reservationService,
                            BuyerQueueService buyerQueueService,
-                           JobScheduler jobScheduler)
+                           JobScheduler jobScheduler,
+                           @Value("${ticketstampede.reservation.ttl}") Duration reservationTtl,
+                           @Value("${ticketstampede.queue.ttl}") Duration queueTtl
+                           )
     {
         this.ticketRepository = ticketRepository;
         this.purchaseRequestRepository = purchaseRequestRepository;
@@ -52,6 +57,8 @@ public class PurchaseService {
         this.reservationService = reservationService;
         this.buyerQueueService = buyerQueueService;
         this.jobScheduler = jobScheduler;
+        this.reservationTtl = reservationTtl;
+        this.queueTtl = queueTtl;
     }
 
     //READ_COMMITTED = on each new query, read the latest committed state available at the start of that query.
@@ -115,7 +122,7 @@ public class PurchaseService {
             }
             //If not sold out and there exists at least one locked or reserved ticket then buyer is pushed onto a queue
             newPurchaseRequest.markAsQueued();
-            BuyerQueueEntry buyerQueueEntry = new BuyerQueueEntry(userId,newPurchaseRequest,Instant.now().plus(QUEUE_TTL));
+            BuyerQueueEntry buyerQueueEntry = new BuyerQueueEntry(userId,newPurchaseRequest,Instant.now().plus(queueTtl));
             buyerQueueRepository.save(buyerQueueEntry);
             ScheduledTask scheduledTask = new ScheduledTask(ScheduledTaskType.QUEUE_ENTRY_EXPIRY,buyerQueueEntry.getId(),buyerQueueEntry.getExpiresAt());
             scheduleTaskRepository.save(scheduledTask);
@@ -127,7 +134,7 @@ public class PurchaseService {
         //6. Create a reservation
         ticket.markAsReserved();
         newPurchaseRequest.markAsReserved(ticket);
-        Reservation reservation = new Reservation(ticket,newPurchaseRequest,userId);
+        Reservation reservation = new Reservation(ticket,newPurchaseRequest,userId,Instant.now().plus(reservationTtl));
         reservationRepository.save(reservation);
         ScheduledTask scheduledTask = new ScheduledTask(
                 ScheduledTaskType.RESERVATION_EXPIRY,

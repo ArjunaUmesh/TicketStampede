@@ -19,6 +19,9 @@ public class BuyerClient {
     private static final String RESET_ENDPOINT = "/reset";
     private static final String BUY_ENDPOINT = "/buy";
     private static final String STATUS_ENDPOINT = "/status";
+    private static final String PAYMENT_ENDPOINT = "/payment";
+    private static final String CONFIRM_RESERVATION_ENDPOINT = "/confirmReservation";
+    private static final String PURCHASE_REQUEST_ENDPOINT = "/purchase-request/";
 
     public BuyerClient(URI baseUri, ObjectMapper objectMapper) {
         this.baseUri = baseUri;
@@ -64,5 +67,62 @@ public class BuyerClient {
                 .GET()
                 .build();
         return httpClient.sendAsync(request,HttpResponse.BodyHandlers.ofString());
+    }
+
+    public CompletableFuture<HttpResponse<String>> payment(
+            UUID reservationId,
+            String userId) throws JsonProcessingException {
+
+        PaymentRequest paymentRequest = new PaymentRequest(reservationId, userId);
+        String requestBody = objectMapper.writeValueAsString(paymentRequest);
+
+        HttpRequest request = HttpRequest
+                .newBuilder()
+                .uri(baseUri.resolve(PAYMENT_ENDPOINT))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        return httpClient.sendAsync(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    public CompletableFuture<HttpResponse<String>> confirmReservation(
+            UUID paymentId) throws JsonProcessingException {
+
+        ConfirmPurchaseRequest confirmPurchaseRequest =
+                new ConfirmPurchaseRequest(paymentId);
+
+        String requestBody =
+                objectMapper.writeValueAsString(confirmPurchaseRequest);
+
+        HttpRequest request = HttpRequest
+                .newBuilder()
+                .uri(baseUri.resolve(CONFIRM_RESERVATION_ENDPOINT))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        return httpClient.sendAsync(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+        );
+    }
+
+    public CompletableFuture<HttpResponse<String>> getPurchaseRequest(
+            UUID requestId) {
+
+        HttpRequest request = HttpRequest
+                .newBuilder()
+                .uri(baseUri.resolve(PURCHASE_REQUEST_ENDPOINT + requestId))
+                .GET()
+                .build();
+
+        return httpClient.sendAsync(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+        );
     }
 }

@@ -2,6 +2,7 @@ package org.ticketstampede.service;
 
 import jakarta.transaction.Transactional;
 import org.jobrunr.scheduling.JobScheduler;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.ticketstampede.dto.BuyTicketResponse;
 import org.ticketstampede.dto.SimulatedPayment;
@@ -11,6 +12,7 @@ import org.ticketstampede.repository.BuyerQueueRepository;
 import org.ticketstampede.repository.ReservationRepository;
 import org.ticketstampede.repository.ScheduleTaskRepository;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,13 +24,20 @@ public class ReservationService {
     private final ScheduleTaskRepository scheduleTaskRepository;
     private final BuyerQueueRepository buyerQueueRepository;
     private final JobScheduler jobScheduler;
+    private final Duration reservationTtl;
 
-    public ReservationService(ReservationRepository reservationRepository,ScheduleTaskRepository scheduleTaskRepository,BuyerQueueRepository buyerQueueRepository,JobScheduler jobScheduler)
+
+    public ReservationService(ReservationRepository reservationRepository,
+                              ScheduleTaskRepository scheduleTaskRepository,
+                              BuyerQueueRepository buyerQueueRepository,
+                              JobScheduler jobScheduler,
+                              @Value("${ticketstampede.reservation.ttl}") Duration reservationTtl)
     {
         this.reservationRepository = reservationRepository;
         this.scheduleTaskRepository = scheduleTaskRepository;
         this.buyerQueueRepository = buyerQueueRepository;
         this.jobScheduler = jobScheduler;
+        this.reservationTtl = reservationTtl;
     }
 
     @Transactional
@@ -100,7 +109,7 @@ public class ReservationService {
                     queuedPurchaseRequest.markAsReserved(ticket);
                     reservationRepository.flush();
                     //create a reservation for the queued buyer and the current ticket
-                    Reservation queuedReservation = new Reservation(ticket,queuedPurchaseRequest, buyerQueueEntry.getUserId());
+                    Reservation queuedReservation = new Reservation(ticket,queuedPurchaseRequest, buyerQueueEntry.getUserId(),Instant.now().plus(reservationTtl));
                     reservationRepository.save(queuedReservation);
                     //create a scheduled reservation expiry task for the reservation of the queued buyer
                     ScheduledTask queuedScheduledTask = new ScheduledTask(ScheduledTaskType.RESERVATION_EXPIRY,queuedReservation.getId(),queuedReservation.getExpiresAt());

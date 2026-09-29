@@ -1,10 +1,7 @@
 package org.ticketstampede.controller;
 
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.ticketstampede.dto.*;
 import org.ticketstampede.service.PurchaseService;
 import org.ticketstampede.service.SaleVersionService;
@@ -62,7 +59,7 @@ public class TicketController {
     }
 
     @GetMapping("/purchase-request/{requestId}")
-    public BuyTicketResponse purchase_request(@Valid UUID requestId)
+    public BuyTicketResponse purchase_request(@PathVariable UUID requestId)
     {
         return purchaseService.getPurchaseRequest(requestId);
     }
